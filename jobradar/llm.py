@@ -24,6 +24,7 @@ class RateLimited(Exception):
 ENDPOINTS = {
     "xkiro":      ("https://api.xkiro.com/v1/chat/completions",       "XKIRO_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1/chat/completions",   "OPENROUTER_API_KEY"),
+    "groq":       ("https://api.groq.com/openai/v1/chat/completions", "GROQ_API_KEY"),
     "ollama":     ("http://localhost:11434/v1/chat/completions",      None),
 }
 
@@ -78,6 +79,15 @@ class LLM:
             "temperature": 0.2,
             "max_tokens": max_tokens,
         }
+        if self.provider == "groq" and self.model.startswith("openai/gpt-oss"):
+            # gpt-oss is a reasoning model: on Groq it returns hidden chain-of-
+            # thought in a separate `reasoning` field, but that reasoning still
+            # counts against max_tokens - left unconstrained it can consume the
+            # whole budget and leave `content` empty (verified: default effort
+            # spent 300/300 tokens on reasoning alone for a 2-job scoring
+            # batch). "low" keeps enough of max_tokens free for the actual
+            # answer, which is all this task needs - judgement, not deliberation.
+            body["reasoning_effort"] = "low"
         for attempt in range(retries):
             r = requests.post(self.url, headers=headers, json=body, timeout=60)
             if r.status_code == 429:           # free tiers rate-limit hard
