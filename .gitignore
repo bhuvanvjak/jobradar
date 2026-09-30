@@ -18,3 +18,9 @@ digest_preview.html
 alert_preview.html
 
 .DS_Store
+
+# auto-apply module - generated content and personal data
+/apply_output/
+/data/target_companies.csv
+!/data/target_companies.example.csv
+run.ps1

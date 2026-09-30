@@ -6,3 +6,9 @@ pypdf>=4.2
 typesafe-sdk
 fastapi>=0.110
 uvicorn[standard]>=0.29
+
+# ---- auto-apply module (jobradar/apply/) ----
+notion-client>=2.2.1        # application tracking log
+flask>=3.0.0                 # local review queue at localhost:5055
+fpdf2>=2.7.9                 # tailored resume -> PDF (pure-python, no system deps)
+anthropic>=0.40.0            # only used if apply.tailor_llm.provider is "anthropic"
