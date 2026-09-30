@@ -1,8 +1,10 @@
 # secrets and personal data — never commit these
 run.sh
 config.yaml
-resume.*
-!resume.example.txt
+# anchored to the repo root: an unanchored `resume.*` also matches
+# jobradar/resume.py, which is source, not personal data.
+/resume.*
+!/resume.example.txt
 .resume_profile.json
 .resume_details.json
 

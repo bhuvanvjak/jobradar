@@ -34,6 +34,9 @@ discovery:
   queries: ["full stack developer", "react developer", "node.js",
             "backend engineer", "python developer", "ai engineer"]
   max_per_query: 40
+  expire_after_days: 4                 # aggregators give no "still open" signal,
+                                       # so a listing not re-seen in this long
+                                       # is treated as expired
 
 # ---- filtering ----
 filters:

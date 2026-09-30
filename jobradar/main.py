@@ -122,6 +122,9 @@ def cmd_scan(cfg: dict, store: Store, quiet: bool = False) -> dict:
 
     new = store.upsert(kept)
     closed = store.mark_closed(healthy_companies)
+    # Aggregator listings are never absent-confirmed, so they expire on age.
+    stale_days = int(cfg.get("discovery", {}).get("expire_after_days", 14))
+    closed += store.close_stale(["remotive", "arbeitnow"], stale_days)
 
     # --- score the new arrivals -------------------------------------------
     llm_cfg = cfg.get("llm", {})

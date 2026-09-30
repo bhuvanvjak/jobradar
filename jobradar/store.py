@@ -100,6 +100,30 @@ class Store:
         return rows
 
     # -- scoring ------------------------------------------------------------
+    def close_stale(self, sources: list[str], max_age_days: int) -> list[sqlite3.Row]:
+        """Close jobs from sources that give no reliable presence signal.
+
+        A company board is authoritative: if a posting is absent from a clean
+        fetch, it is gone. Aggregators are keyword feeds, so absence from one
+        run means only that a query did not surface it. For those, age is the
+        only usable signal - a listing not re-confirmed in weeks is treated as
+        expired rather than shown as live indefinitely.
+        """
+        if not sources:
+            return []
+        cutoff = time.time() - max_age_days * 86400
+        marks = ",".join("?" * len(sources))
+        rows = self.db.execute(
+            f"""SELECT * FROM jobs WHERE source IN ({marks})
+                AND closed_at IS NULL AND last_seen < ?""",
+            (*sources, cutoff),
+        ).fetchall()
+        for r in rows:
+            self.db.execute("UPDATE jobs SET closed_at = ? WHERE id = ?",
+                            (time.time(), r["id"]))
+        self.db.commit()
+        return rows
+
     def save_score(self, job_id: str, score: int, reason: str,
                    breakdown: dict | None = None) -> None:
         self.db.execute(
