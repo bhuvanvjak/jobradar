@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor
 import sys
 import time
@@ -76,6 +77,25 @@ def get_profile(cfg: dict, scorer, force: bool = False) -> str:
     return profile
 
 
+# Catches "3+ years of experience", "5 years professional experience", and
+# the reversed "experience of 3+ years" phrasing. Not exhaustive - JDs phrase
+# this every possible way - but same idea as seniority.py's title regex: a
+# cheap, deterministic gate catches most of what the prompt alone won't,
+# because the scorer only ever sees a few hundred characters of description
+# (see batch.py) and a "3+ years required" line often sits well past that.
+_YEARS_RE = re.compile(
+    r"(\d+)\s*\+?\s*(?:-\s*\d+\s*)?years?\s*(?:of\s+)?"
+    r"(?:relevant\s+|professional\s+|related\s+|industry\s+)?experience"
+    r"|experience\s*(?:of\s+)?(\d+)\s*\+?\s*years?",
+    re.I,
+)
+
+
+def _min_years_required(text: str) -> int | None:
+    years = [int(m.group(1) or m.group(2)) for m in _YEARS_RE.finditer(text or "")]
+    return min(years) if years else None
+
+
 def passes_filters(job: dict, f: dict) -> bool:
     title = job["title"].lower()
     inc = [s.lower() for s in f.get("title_include") or []]
@@ -87,6 +107,11 @@ def passes_filters(job: dict, f: dict) -> bool:
         return False
     if locs and not any(s in job["location"].lower() for s in locs):
         return False
+    max_years = f.get("max_years_required")
+    if max_years is not None:
+        required = _min_years_required(job.get("description", ""))
+        if required is not None and required > max_years:
+            return False
     return True
 
 
@@ -460,6 +485,14 @@ def main(argv=None) -> None:
     a = sub.add_parser("alert"); a.add_argument("--dry-run", action="store_true")
     rc = sub.add_parser("recap"); rc.add_argument("--dry-run", action="store_true")
     sub.add_parser("test")
+    ap = sub.add_parser("apply", help="tailor a resume + cover letter/cold email for "
+                                       "the best unapplied scored jobs, and apply")
+    ap.add_argument("--count", type=int, default=None,
+                     help="override apply.jobs_per_batch for this run")
+    ap.add_argument("--dry-run", action="store_true",
+                     help="tailor and print, but do not send/log/mark anything")
+    sub.add_parser("review", help="run the local review queue for job-board "
+                                   "applications (http://localhost:5055)")
     args = p.parse_args(argv)
 
     cfg = load_config(Path(args.config))
@@ -483,6 +516,14 @@ def main(argv=None) -> None:
                         "<p>SMTP works. Your weekly digest will arrive here.</p>",
                         "SMTP works.")
         print(f"Test email sent to {cfg['email']['to']}.")
+    elif args.cmd == "apply":
+        from .apply import runner as apply_runner
+        if args.count is not None:
+            cfg.setdefault("apply", {})["jobs_per_batch"] = args.count
+        apply_runner.run_batch(cfg, store, ROOT, dry_run=args.dry_run)
+    elif args.cmd == "review":
+        from .apply import review_server
+        review_server.main()
 
 
 if __name__ == "__main__":

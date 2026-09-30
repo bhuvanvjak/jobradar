@@ -55,8 +55,15 @@ def _job_lines(jobs: list[dict]) -> str:
     lines = []
     for i, j in enumerate(jobs):
         # Title, company and location carry most of the signal; the opening of
-        # a description carries the rest.
-        desc = " ".join((j.get("description") or "")[:240].split())
+        # a description carries the rest. 500 rather than 240: an explicit
+        # "3+ years required" line is often past the company-blurb opening,
+        # and the seniority gate in SYSTEM can't apply to a requirement it
+        # never sees. main.py's passes_filters() also regex-checks the full
+        # description for this deterministically before a job ever reaches
+        # scoring - this just gives the model's own judgment more to work
+        # with for the softer cases a regex can't catch (e.g. seniority
+        # implied by scope/responsibilities rather than a stated number).
+        desc = " ".join((j.get("description") or "")[:500].split())
         lines.append(f"{i}|{j['company']}|{j['title']}|{j.get('location') or '?'}|{desc}")
     return "\n".join(lines)
 
