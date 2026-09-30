@@ -67,6 +67,35 @@ Then three things:
 ./run-web.sh           # http://localhost:8765
 ```
 
+## Windows setup (added in this fork)
+
+The upstream project assumes a Mac (launchd schedules, bash scripts). This
+fork adds a Windows-native path alongside it - same Python package, same
+`config.yaml`, different shell and scheduler.
+
+```powershell
+cd "C:\Randomchetta\Hook or Crook\jobradar"
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+copy config.example.yaml config.yaml     # already pre-filled with a starter
+                                          # company list and Groq as the LLM -
+                                          # see "Auto-apply module" below
+copy run.example.ps1 run.ps1             # then edit run.ps1 and fill in your keys
+```
+
+Put your resume at the path `resume_path` points to in `config.yaml`
+(PDF or plain text both work). Then:
+
+```powershell
+.\run.ps1 test          # sends a test email - proves SMTP works
+.\run.ps1 scan          # fetch, diff, score
+.\run.ps1 webui         # jobradar's own scoring dashboard - http://localhost:8765
+```
+
+To schedule the daily/weekly jobs the way `install.sh` does on a Mac, use
+Windows Task Scheduler instead of launchd - see "Auto-apply module" below
+for the scheduler script this fork adds (it also covers `scan`/`apply`).
+
 ## Configuration
 
 ```yaml
@@ -92,6 +121,16 @@ Find a company's board and slug in its careers URL:
 | `jobs.lever.co/spotify` | lever | `spotify` |
 | `adobe.wd5.myworkdayjobs.com/external_experienced` | workday | `adobe/wd5/external_experienced` |
 
+Board APIs have name collisions - a guessed slug can resolve to a wrong
+company sharing the name (`lever/porter` is a Massachusetts healthcare
+staffing firm, not the Indian logistics company; `greenhouse/slice` is a
+Balkans customer-support shop, not the Indian fintech). Before trusting a
+slug, hit the URL and read a few job locations/titles back:
+
+```powershell
+curl.exe "https://boards-api.greenhouse.io/v1/boards/<slug>/jobs" | more
+```
+
 ## Commands
 
 ```bash
@@ -105,6 +144,86 @@ Find a company's board and slug in its careers URL:
 
 `install.sh` registers two launchd jobs: daily alerts at 09:30, weekly digest
 Mondays at 09:00.
+
+## Auto-apply module (added in this fork)
+
+Everything above finds and ranks jobs but stops at telling you about them.
+This fork adds `jobradar/apply/`, which picks up where the scan leaves off:
+for the best unapplied scored jobs, it tailors your resume, writes a cover
+letter or cold email with an LLM, and either sends the cold email directly
+or queues the job-board application for your one-click approval. Every
+application is logged to Notion.
+
+**What gets automated, and what doesn't:**
+
+| Track | Automatic | Needs you |
+|---|---|---|
+| Cold email | Finds a contact, tailors resume, writes and sends the email, logs it | Sourcing the contact list once |
+| Job-board posting | Tailors resume + cover letter, logs it, queues it | One click in the review queue to actually submit |
+
+Job-board applications are never auto-submitted - most ATS platforms
+(Workday, Greenhouse, Lever) actively block bots with CAPTCHAs, and
+several explicitly prohibit automated applying in their terms of service.
+The AI does the writing; you do the final click. Cold email carries no
+such restriction (it's just your own outbound email), so it's safe to
+send unattended - but review the first batch of drafts by hand (set
+`apply.cold_email.send_automatically: false` in `config.yaml` while you
+do) before trusting it to run twice a day with nobody watching.
+
+### Setup
+
+**1. Pick your writing model** - `apply.tailor_llm` in `config.yaml`,
+independent of the `llm:` block above (which only scores fit). Groq is
+free (`console.groq.com/home`, no card) and is the default; Anthropic
+costs a few cents a day but is more consistent about not embellishing
+your experience - a reasonable path is Groq while you're dialing in your
+resume with `--dry-run`, Anthropic once you trust it for live runs.
+
+**2. Create the Notion database** - a table with these exact column names
+and types, then **Share → invite your integration** on it:
+
+- `Company` - Title (rename the default title column)
+- `Role`, `Location`, `Why It Fits`, `Resume File`, `Letter/Email` - Text
+- `Status` - Select: `Pending Review`, `Applied - Cold Email`,
+  `Applied - Job Board`, `Skipped`, `Replied`, `Rejected`, `Interview`
+- `Channel` - Select: `Cold Email`, `Job Board`
+- `Source` - Select: `greenhouse`, `lever`, `ashby`, `workday`, `oracle`,
+  `atlassian`, `remotive`, `arbeitnow`
+- `Date Applied` - Date
+- `Job URL` - URL
+
+Copy the database ID from its URL into `NOTION_DATABASE_ID` in `run.ps1`
+(the 32-character string after your workspace name, before `?v=`).
+
+**3. Fill in `apply.candidate`** in `config.yaml` (name/email/phone/
+location/links) and, if you want cold email, `data/target_companies.csv`:
+`company,contact_name,contact_email,role_title,notes,source_url`. **You
+source these contacts yourself** - company site, a tool like Hunter.io,
+or an address already printed in a posting - nothing here scrapes or
+guesses addresses.
+
+**4. Test, then schedule:**
+
+```powershell
+.\run.ps1 scan                              # populate the database first
+.\run.ps1 apply --count 5 --dry-run         # calls the LLM for real, sends/logs nothing
+.\run.ps1 apply --count 5                   # live run
+.\run.ps1 review                            # http://localhost:5055 - approve job-board applications
+.\scripts\setup_task_scheduler.ps1          # registers 9 AM / 9 PM Windows Task Scheduler runs
+```
+
+Each scheduled run does `scan` then `apply --count 5` - two runs a day,
+five jobs each, ten applications a day. Output is appended to
+`jobradar.log`. State lives in an `applications` table inside the same
+`jobradar.db` SQLite file the scanner already uses (see
+`jobradar/apply/applydb.py`) - a job already in that table is never
+picked again, so the two daily runs never double-apply.
+
+One accepted simplification: job descriptions come from jobradar's own
+`jobs` table, which trims them to 1,500 characters on ingest to keep the
+database small across thousands of tracked postings. That's usually
+plenty to tailor against - most postings put real requirements up front -
+but it's not the full original listing.
 
 ## Token budget
 
